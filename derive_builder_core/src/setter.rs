@@ -148,6 +148,12 @@ impl<'a> ToTokens for Setter<'a> {
                 let try_ident = syn::Ident::new(&format!("try_{}", ident), Span::call_site());
                 let result = self.bindings.result_ty();
 
+                let try_value = if stripped_option {
+                    quote!(#option::Some(converted))
+                } else {
+                    quote!(converted)
+                };
+
                 tokens.append_all(quote!(
                     #(#attrs)*
                     #vis fn #try_ident #try_ty_params (#self_param, value: VALUE)
@@ -155,7 +161,7 @@ impl<'a> ToTokens for Setter<'a> {
                     {
                         let converted : #ty = value.try_into()?;
                         let mut new = #self_into_return_ty;
-                        new.#field_ident = #option::Some(converted);
+                        new.#field_ident = #option::Some(#try_value);
                         Ok(new)
                 }));
             } else {
@@ -376,6 +382,38 @@ mod tests {
                         ::std::option::Option::Some(::std::option::Option::Some(value.into()));
                     new
                 }
+            )
+            .to_string()
+        );
+    }
+
+    #[test]
+    fn strip_option_try_setter() {
+        let ty = syn::parse_str("Option<Foo>").unwrap();
+        let mut setter = default_setter!();
+        setter.strip_option = true;
+        setter.generic_into = true;
+        setter.field_type = &ty;
+        setter.try_setter = true;
+        assert_eq!(
+            quote!(#setter).to_string(),
+            quote!(
+                #[allow(unused_mut)]
+                pub fn foo<VALUE: ::std::convert::Into<Foo>>(&mut self, value: VALUE) -> &mut Self {
+                    let mut new = self;
+                    new.foo =
+                        ::std::option::Option::Some(::std::option::Option::Some(value.into()));
+                    new
+                }
+
+                pub fn try_foo<VALUE: ::std::convert::TryInto<Foo>>(&mut self, value: VALUE)
+                    -> ::std::result::Result<&mut Self, VALUE::Error> {
+                    let converted : Foo = value.try_into()?;
+                    let mut new = self;
+                    new.foo = ::std::option::Option::Some(::std::option::Option::Some(converted));
+                    Ok(new)
+                }
+
             )
             .to_string()
         );
